@@ -9,161 +9,17 @@ from torchvision import transforms
 import random
 
 # Some words may differ from the class names defined in ADE20K to minimize ambiguity
-ADE20K_dict = {
-'1':'wall',
-'2':'building',
-'3':'sky',
-'4':'floor',
-'5':'tree',
-'6':'ceiling',
-'7':'road',
-'8':'bed',
-'9':'window',
-'10':'grass',
-'11':'cabinet',
-'12':'sidewalk',
-'13':'person',
-'14':'ground',
-'15':'door',
-'16':'table',
-'17':'mountain',
-'18':'plant',
-'19':'curtain',
-'20':'chair',
-'21':'car',
-'22':'water',
-'23':'painting',
-'24':'sofa',
-'25':'shelf',
-'26':'house',
-'27':'sea',
-'28':'mirror',
-'29':'carpet',
-'30':'field',
-'31':'armchair',
-'32':'seat',
-'33':'fence',
-'34':'desk',
-'35':'stone',
-'36':'wardrobe',
-'37':'lamp',
-'38':'bathtub',
-'39':'railing',
-'40':'cushion',
-'41':'pedestal',
-'42':'box',
-'43':'pillar',
-'44':'signboard',
-'45':'dresser',
-'46':'counter',
-'47':'sand',
-'48':'sink',
-'49':'skyscraper',
-'50':'fireplace',
-'51':'refrigerator',
-'52':'grandstand',
-'53':'path',
-'54':'stairs',
-'55':'runway',
-'56':'showcase',
-'57':'pool table',
-'58':'pillow',
-'59':'screen door',
-'60':'stairway',
-'61':'river',
-'62':'bridge',
-'63':'bookcase',
-'64':'blinds',
-'65':'coffee table',
-'66':'toilet',
-'67':'flower',
-'68':'book',
-'69':'hill',
-'70':'bench',
-'71':'countertop',
-'72':'stove',
-'73':'palm',
-'74':'kitchen',
-'75':'computer',
-'76':'swivel chair',
-'77':'boat',
-'78':'bar',
-'79':'arcade machine',
-'80':'hovel',
-'81':'bus',
-'82':'towel',
-'83':'light',
-'84':'truck',
-'85':'tower',
-'86':'chandelier',
-'87':'awning',
-'88':'streetlight',
-'89':'booth',
-'90':'television',
-'91':'airplane',
-'92':'dirt road',
-'93':'apparel',
-'94':'pole',
-'95':'land',
-'96':'bannister',
-'97':'escalator',
-'98':'pouf',
-'99':'bottle',
-'100':'sideboard',
-'101':'poster',
-'102':'stage',
-'103':'van',
-'104':'ship',
-'105':'fountain',
-'106':'conveyor',
-'107':'canopy',
-'108':'washer',
-'109':'plaything',
-'110':'swimming pool',
-'111':'stool',
-'112':'barrel',
-'113':'basket',
-'114':'waterfall',
-'115':'tent',
-'116':'bag',
-'117':'motorbike',
-'118':'cradle',
-'119':'oven',
-'120':'ball',
-'121':'food',
-'122':'stair',
-'123':'tank',
-'124':'brand',
-'125':'microwave',
-'126':'pot',
-'127':'animal',
-'128':'bicycle',
-'129':'lake',
-'130':'dishwasher',
-'131':'screen',
-'132':'blanket',
-'133':'sculpture',
-'134':'hood',
-'135':'sconce',
-'136':'vase',
-'137':'traffic light',
-'138':'tray',
-'139':'ashcan',
-'140':'fan',
-'141':'pier',
-'142':'screen',
-'143':'plate',
-'144':'monitor',
-'145':'bulletin board',
-'146':'shower',
-'147':'radiator',
-'148':'glass',
-'149':'clock',
-'150':'flag'
+idrid_dict = {
+'10':'fundus',
+'30':'black',
+'60':'Hard Exudates',
+'120':'Soft Exudates',
+'180':'Microaneurysms',
+'240':'Hemorrhages'
 }
 
 
-class ADE20KBase(Dataset):
+class idridBase(Dataset):
     def __init__(self,
                  data_root,
                  txt_file,
@@ -215,10 +71,10 @@ class ADE20KBase(Dataset):
         class_ids = sorted(np.unique(label.astype(np.uint8)))
         if class_ids[0] == 0:
             class_ids = class_ids[1:]
-        class_ids_final = np.zeros(151)
+        class_ids_final = np.zeros(255)
         text = ''
         for i in range(len(class_ids)):
-            text += ADE20K_dict[str(class_ids[i])]
+            text += idrid_dict[str(class_ids[i])]
             text += ' '
             class_ids_final[class_ids[i]] = 1
         text = text[:-1]
@@ -228,11 +84,11 @@ class ADE20KBase(Dataset):
         return example
 
 
-class ADE20KTrain(ADE20KBase):
+class idridTrain(idridBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
 
-class ADE20KValidation(ADE20KBase):
+class idridValidation(idridBase):
     def __init__(self, flip_p=0., **kwargs):
         super().__init__(flip_p=flip_p, **kwargs)
