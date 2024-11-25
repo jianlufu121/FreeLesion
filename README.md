@@ -2,7 +2,7 @@
 
 ## Introduction
 
-FreeLesion is designed for generating lesion masks in fundus image synthesis to enhance fundus lesion segmentation. Through curriculum learning, adaptive lesion resampling, and feature loss-guided filtering, FreeLesion has effectively generated a rich and lesion-balanced synthetic dataset with well-aligned masks and images, successfully addressing the issue of limited availability of fundus lesion datasets.
+FreeLesion is designed for mask-to-image  fundus image synthesis to enhance fundus lesion segmentation. Through curriculum learning, adaptive lesion resampling, and feature loss-guided filtering, FreeLesion has effectively generated a rich and lesion-balanced synthetic dataset with well-aligned masks and images, successfully addressing the issue of limited availability of fundus lesion datasets.
 
 
 ## Requirements
