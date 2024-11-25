@@ -2,7 +2,7 @@ import argparse, os, sys, datetime, glob, importlib, csv
 import numpy as np
 import time
 import torch
-#os.environ["CUDA_VISIBLE_DEVICES"]="0"
+#os.environ["CUDA_VISIBLE_DEVICES"]="1"
 import torchvision
 import pytorch_lightning as pl
 
@@ -11,6 +11,8 @@ from omegaconf import OmegaConf
 from torch.utils.data import random_split, DataLoader, Dataset, Subset
 from functools import partial
 from PIL import Image
+import cv2
+from skimage import measure
 
 from pytorch_lightning import seed_everything
 from pytorch_lightning.trainer import Trainer
@@ -199,6 +201,38 @@ def worker_init_fn(_):
     else:
         return np.random.seed(np.random.get_state()[1][0] + worker_id)
 
+def mask_connected_components(label_img, mask_percentage):
+    """
+    Mask a percentage of the connected components in the label image.
+
+    Args:
+    - label_img (np.ndarray): The label image.
+    - mask_percentage (float): The percentage of connected components to mask.
+
+    Returns:
+    - masked_label_img (np.ndarray): The label image with masked components.
+    """
+    # Find all connected components
+    labeled_img, num = measure.label(label_img, connectivity=2, return_num=True)
+    if num == 0:
+        return label_img
+
+    # Get properties of each connected component
+    props = measure.regionprops(labeled_img)
+    
+    # Sort components by area
+    props = sorted(props, key=lambda x: x.area, reverse=True)
+    
+    # Determine the number of components to mask
+    num_to_mask = int(len(props) * mask_percentage)
+    
+    # Mask the components
+    masked_label_img = np.copy(label_img)
+    for i in range(num_to_mask):
+        coords = props[i].coords
+        masked_label_img[coords[:, 0], coords[:, 1]] = 0  # Assuming background label is 0
+    
+    return masked_label_img
 
 class DataModuleFromConfig(pl.LightningDataModule):
     def __init__(self, batch_size, train=None, validation=None, test=None, predict=None,
@@ -209,13 +243,13 @@ class DataModuleFromConfig(pl.LightningDataModule):
         self.dataset_configs = dict()
         self.num_workers = num_workers if num_workers is not None else batch_size * 2
         self.use_worker_init_fn = use_worker_init_fn
+   #     self.stages = stages  # Number of curriculum learning stages
+    #    self.current_stage = 0  # Current stage of curriculum learning
         if train is not None:
             self.dataset_configs["train"] = train
-   #         pdb.set_trace()
             self.train_dataloader = self._train_dataloader
         if validation is not None:
             self.dataset_configs["validation"] = validation
-        #    pdb.set_trace()
             self.val_dataloader = partial(self._val_dataloader, shuffle=shuffle_val_dataloader)
         if test is not None:
             self.dataset_configs["test"] = test
@@ -227,25 +261,37 @@ class DataModuleFromConfig(pl.LightningDataModule):
 
     def prepare_data(self):
         for data_cfg in self.dataset_configs.values():
-    #        pdb.set_trace()
             instantiate_from_config(data_cfg)
-
-    def setup(self, stage=None):
+    def setup(self, stage=None,keep_ratio=None):
         self.datasets = dict(
             (k, instantiate_from_config(self.dataset_configs[k]))
             for k in self.dataset_configs)
+    
         if self.wrap:
             for k in self.datasets:
-     #           pdb.set_trace()
                 self.datasets[k] = WrappedDataset(self.datasets[k])
+        if keep_ratio is not None:
+            mask_percentage = keep_ratio
+            for dataset_name in self.datasets:
+                if 'train' in dataset_name:
+                    self.datasets[dataset_name].labels = self.apply_curriculum_mask(
+                            self.datasets[dataset_name].labels, mask_percentage
+                            )
+    
+    def apply_curriculum_mask(self, labels, mask_percentage):
+        masked_labels = []
+        for label_img in labels:
+            masked_labels.append(mask_connected_components(label_img, mask_percentage))
+        return np.array(masked_labels)
+
+    
 
     def _train_dataloader(self):
         is_iterable_dataset = isinstance(self.datasets['train'], Txt2ImgIterableBaseDataset)
         if is_iterable_dataset or self.use_worker_init_fn:
             init_fn = worker_init_fn
         else:
-            init_fn = None
-      #  pdb.set_trace()    
+            init_fn = None    
         return DataLoader(self.datasets["train"], batch_size=self.batch_size,
                           num_workers=self.num_workers, shuffle=False if is_iterable_dataset else True,
                           worker_init_fn=init_fn)
@@ -268,7 +314,6 @@ class DataModuleFromConfig(pl.LightningDataModule):
         else:
             init_fn = None
 
-        # do not shuffle dataloader for iterable dataset
         shuffle = shuffle and (not is_iterable_dataset)
 
         return DataLoader(self.datasets["test"], batch_size=self.batch_size,
@@ -281,6 +326,8 @@ class DataModuleFromConfig(pl.LightningDataModule):
             init_fn = None
         return DataLoader(self.datasets["predict"], batch_size=self.batch_size,
                           num_workers=self.num_workers, worker_init_fn=init_fn)
+
+
 
 
 class SetupCallback(Callback):
@@ -462,46 +509,7 @@ class CUDACallback(Callback):
 
 
 if __name__ == "__main__":
-    # custom parser to specify config files, train, test and debug mode,
-    # postfix, resume.
-    # `--key value` arguments are interpreted as arguments to the trainer.
-    # `nested.key=value` arguments are interpreted as config parameters.
-    # configs are merged from left-to-right followed by command line parameters.
-
-    # model:
-    #   base_learning_rate: float
-    #   target: path to lightning module
-    #   params:
-    #       key: value
-    # data:
-    #   target: main.DataModuleFromConfig
-    #   params:
-    #      batch_size: int
-    #      wrap: bool
-    #      train:
-    #          target: path to train dataset
-    #          params:
-    #              key: value
-    #      validation:
-    #          target: path to validation dataset
-    #          params:
-    #              key: value
-    #      test:
-    #          target: path to test dataset
-    #          params:
-    #              key: value
-    # lightning: (optional, has sane defaults and can be specified on cmdline)
-    #   trainer:
-    #       additional arguments to trainer
-    #   logger:
-    #       logger to instantiate
-    #   modelcheckpoint:
-    #       modelcheckpoint to instantiate
-    #   callbacks:
-    #       callback1:
-    #           target: importpath
-    #           params:
-    #               key: value
+    
     import pdb
     now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
@@ -725,7 +733,7 @@ if __name__ == "__main__":
             del callbacks_cfg['ignore_keys_callback']
 
         trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k in callbacks_cfg]
-        trainer_kwargs["max_steps"] = trainer_opt.max_steps
+     #   trainer_kwargs["max_steps"] = trainer_opt.max_steps
 #        pdb.set_trace()
 
         trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
@@ -742,6 +750,8 @@ if __name__ == "__main__":
         # lightning still takes care of proper multiprocessing though
         data.prepare_data()
         data.setup()
+#        data.stages = 10
+       # data.next_stage()
         print("#### Data #####")
         for k in data.datasets:
             print(f"{k}, {data.datasets[k].__class__.__name__}, {len(data.datasets[k])}")
@@ -794,8 +804,35 @@ if __name__ == "__main__":
         # run
         if opt.train:
             try:
-       #         pdb.set_trace()
-                trainer.fit(model, data)
+                print("Starting training loop")
+                last_checkpoint = None
+                for stage in range(1,10):
+                    print(f"#### Stage {stage} #####")
+                    keep_ratio = stage/10
+                    data.setup(keep_ratio = keep_ratio)
+                    trainer_kwargs["max_steps"] = 5000* (stage)
+                    trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
+                    trainer.logdir = logdir
+                 #   trainer.fit(model, data)
+                  
+                    if last_checkpoint:
+                       print(f"Loading checkpoint for {stage} from: {last_checkpoint}")
+                       trainer.fit(model, data, ckpt_path=last_checkpoint)
+                    else:
+                       trainer.fit(model, data)
+                    
+                    checkpoint_path = os.path.join(ckptdir, f"{stage}_checkpoint.ckpt")
+                    print(f"Checkpoint for {stage} saved at: {checkpoint_path}")
+                    trainer.save_checkpoint(checkpoint_path)
+                
+                    last_epoch=trainer.current_epoch
+                    last_checkpoint = checkpoint_path
+                print("training all labels")
+                data.setup(keep_ratio =None)
+                trainer_kwargs["max_steps"] = trainer_opt.max_steps
+                trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
+                trainer.logdir = logdir
+                trainer.fit(model, data, ckpt_path = last_checkpoint)
             except Exception:
                 melk()
                 raise

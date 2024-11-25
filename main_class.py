@@ -2,7 +2,7 @@ import argparse, os, sys, datetime, glob, importlib, csv
 import numpy as np
 import time
 import torch
-#os.environ["CUDA_VISIBLE_DEVICES"]="0"
+#os.environ["CUDA_VISIBLE_DEVICES"]="1"
 import torchvision
 import pytorch_lightning as pl
 
@@ -20,7 +20,7 @@ from pytorch_lightning.utilities import rank_zero_info
 
 from ldm.data.base import Txt2ImgIterableBaseDataset
 from ldm.util import instantiate_from_config
-#import pdb
+import pdb
 def load_model_from_config(config, ckpt, verbose=False):
     print(f"Loading model from {ckpt}")
     pl_sd = torch.load(ckpt, map_location="cpu")
@@ -211,11 +211,9 @@ class DataModuleFromConfig(pl.LightningDataModule):
         self.use_worker_init_fn = use_worker_init_fn
         if train is not None:
             self.dataset_configs["train"] = train
-   #         pdb.set_trace()
             self.train_dataloader = self._train_dataloader
         if validation is not None:
             self.dataset_configs["validation"] = validation
-        #    pdb.set_trace()
             self.val_dataloader = partial(self._val_dataloader, shuffle=shuffle_val_dataloader)
         if test is not None:
             self.dataset_configs["test"] = test
@@ -227,17 +225,29 @@ class DataModuleFromConfig(pl.LightningDataModule):
 
     def prepare_data(self):
         for data_cfg in self.dataset_configs.values():
-    #        pdb.set_trace()
             instantiate_from_config(data_cfg)
 
-    def setup(self, stage=None):
+    def mask_other_classes(self, dataset,target_class):
+        masked_dataset=[]
+        for image, label in dataset:
+            label_copy = label.clone()
+            mask=(label!=target_class)&(label!=0)
+            label_copy[mask]=10
+            masked_dataset.append((image,label_copy))
+        return masked_dataset
+
+    def setup(self, stage=None,target_class=None):
         self.datasets = dict(
             (k, instantiate_from_config(self.dataset_configs[k]))
             for k in self.dataset_configs)
         if self.wrap:
             for k in self.datasets:
-     #           pdb.set_trace()
                 self.datasets[k] = WrappedDataset(self.datasets[k])
+        if target_class is not None:
+            for k in self.datasets:
+                self.datasets[k] = self.mask_other_classes(self.datasets[k],target_class)
+
+
 
     def _train_dataloader(self):
         is_iterable_dataset = isinstance(self.datasets['train'], Txt2ImgIterableBaseDataset)
@@ -460,6 +470,25 @@ class CUDACallback(Callback):
         except AttributeError:
             pass
 
+class EarlyStoppingPerClass(Callback):
+    def __init__(self, stop_conditions):
+        super().__init__()
+        self.stop_conditions = stop_conditions
+        self.current_class = None
+        self.steps_per_class = 0
+
+    def on_train_start(self, trainer, pl_module):
+        self.steps_per_class = self.stop_conditions.get(self.current_class, trainer.max_steps)
+
+    def on_batch_end(self, trainer, pl_module):
+        if trainer.global_step >= self.steps_per_class:
+            trainer.should_stop = True
+            print(f"Stopping training for {self.current_class} at step {trainer.global_step}")
+
+    def set_current_class(self, class_name):
+        self.current_class = class_name
+
+
 
 if __name__ == "__main__":
     # custom parser to specify config files, train, test and debug mode,
@@ -521,6 +550,7 @@ if __name__ == "__main__":
             "If you want to resume training in a new log folder, "
             "use -n/--name in combination with --resume_from_checkpoint"
         )
+#    pdb.set_trace()    
     if opt.resume:
         if not os.path.exists(opt.resume):
             raise ValueError("Cannot find {}".format(opt.resume))
@@ -725,7 +755,21 @@ if __name__ == "__main__":
             del callbacks_cfg['ignore_keys_callback']
 
         trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k in callbacks_cfg]
-        trainer_kwargs["max_steps"] = trainer_opt.max_steps
+#        trainer_kwargs["max_steps"] = trainer_opt.max_steps
+
+        # 添加自定义回调
+        stop_conditions = {
+                "Hemorrhage": 5,
+                "Hard Exudate": 1000,
+                "Soft Exudate": 1500, 
+                "Microaneurysm": 2000,
+                "all_classes": trainer_opt.max_steps
+                }
+        early_stopping_callback = EarlyStoppingPerClass(stop_conditions)
+        trainer_kwargs["callbacks"].append(early_stopping_callback)
+
+
+
 #        pdb.set_trace()
 
         trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
@@ -785,18 +829,67 @@ if __name__ == "__main__":
 #                pdb.set_trace()
                 pudb.set_trace()
 
-
         import signal
 
         signal.signal(signal.SIGUSR1, melk)
         signal.signal(signal.SIGUSR2, divein)
 
         # run
+       # pdb.set_trace()
         if opt.train:
             try:
-       #         pdb.set_trace()
-                trainer.fit(model, data)
-            except Exception:
+                classes={
+                   # "Hemorrhage":240,
+                    "Hard Exudate":60,
+                    "Soft Exudate":120,
+                    "Hemorrhage":240,
+                    "Microaneurysm":180
+                    }
+                print("Starting training loop")
+                last_checkpoint = None
+                for index,(class_name,target_class) in enumerate(classes.items(),start=1):
+                    print(f"Training {class_name}")
+                    data.setup(target_class=target_class)
+                #    early_stopping_callback.set_current_class(class_name)
+                  #  max_steps=2* (index)
+                    trainer_kwargs["max_steps"] = 10000* (index)
+                    trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
+                    trainer.logdir = logdir
+                   # trainer = pl.Trainer(max_steps=max_steps,gpus=1)
+         #           pdb.set_trace()
+                
+                    if last_checkpoint:
+                       print(f"Loading checkpoint for {class_name} from: {last_checkpoint}")
+                       trainer.fit(model, data, ckpt_path=last_checkpoint)
+                    else:
+                       trainer.fit(model, data)
+                    # 保存每个类别训练后的检查点
+                    checkpoint_path = os.path.join(ckptdir, f"{class_name}_checkpoint.ckpt")
+                    print(f"Checkpoint for {class_name} saved at: {checkpoint_path}")
+                    trainer.save_checkpoint(checkpoint_path)
+                    # 将当前类别的检查点加载为下一个类别的初始检查点
+                    last_epoch=trainer.current_epoch
+                    last_checkpoint = checkpoint_path
+        #            pdb.set_trace()
+      #              if last_checkpoint:
+       #                 trainer.fit(model,data,ckpt_path=last_checkpoint)
+        #            else:
+         #               trainer.fit(model,data)
+          #          last_checkpoint = os.path.join(ckptdir, f"checkpoint_{class_name}.ckpt")
+           #         trainer.save_checkpoint(last_checkpoint)
+                print("training all classes together")
+                data.setup(target_class=None)
+           #     trainer=pl.Trainer(max_steps=3)
+              #  early_stopping_callback.set_current_class("all_classes")
+                trainer_kwargs["max_steps"] = trainer_opt.max_steps
+                trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
+                trainer.logdir = logdir
+                trainer.fit(model,data,ckpt_path=last_checkpoint)
+
+
+
+            except Exception as e:
+                print(f"Exception during training: {e}")
                 melk()
                 raise
         if not opt.no_test and not trainer.interrupted:
@@ -819,3 +912,4 @@ if __name__ == "__main__":
         if trainer.global_rank == 0:
         #    pdb.set_trace()
             print(trainer.profiler.summary())
+
