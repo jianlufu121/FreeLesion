@@ -27,7 +27,7 @@ wget -O models/ldm/stable-diffusion/sd-v1-4-full-ema.ckpt https://huggingface.co
 ## Data Preparation
 
 
-**IDRiD**. The dataset can be downloaded [here](http://data.csail.mit.edu/places/ADEchallenge/ADEChallengeData2016.zip). Please download it and generate two files: `idrid_train.txt` and `idrid_val.txt`, then you should get a directory structure as follows:
+**IDRiD**. The dataset can be downloaded. Please download it and generate two files: `idrid_train.txt` and `idrid_val.txt`, then you should get a directory structure as follows:
 ```
 idrid
     annotations/
