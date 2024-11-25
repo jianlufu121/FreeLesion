@@ -1,5 +1,5 @@
 model:
-  base_learning_rate: 1.0e-06
+  base_learning_rate: 1.0e-05
   target: ldm.models.diffusion.ddpm.LatentDiffusion
   params:
     linear_start: 0.00085
@@ -18,7 +18,7 @@ model:
     use_ema: False
 
     unet_config:
-      target: ldm.modules.diffusionmodules.openaimodel_ADE20K.UNetModel
+      target: ldm.modules.diffusionmodules.openaimodel_idrid.UNetModel
       params:
         image_size: 32 # unused
         in_channels: 4
@@ -64,16 +64,16 @@ data:
   target: main.DataModuleFromConfig
   params:
     batch_size: 1
-    num_workers: 2
+    num_workers: 8
     wrap: false
     train:
-      target: ldm.data.ADE20K.ADE20KTrain
+      target: ldm.data.idrid.idridTrain
       params:
-        size: [768,512]
+        size: 512
     validation:
-      target: ldm.data.ADE20K.ADE20KValidation
+      target: ldm.data.idrid.idridValidation
       params:
-        size: [768,512]
+        size: 512
 
 lightning:
   modelcheckpoint:
@@ -90,4 +90,4 @@ lightning:
 
   trainer:
     benchmark: True
-    max_steps: 320
+    max_steps: 70000
