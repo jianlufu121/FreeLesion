@@ -86,6 +86,9 @@ We provide one sampling scripts: `sample_idrid.sh`. Please modify `--ckpt`, `--t
 
 To fiter out the noise in the generated images, run:
 ```
+python Filter/kmeans_byreal.py <configs>
+                               <checkpoint>
+                               --real-img-path <> --real-mask-path <>
 python Filter/FLGF.py <configs>
                       <checkpoint>
                       --real-img-path <> --real-mask-path <>
